@@ -679,7 +679,6 @@ struct material {
 };
 
 material materials[MATERIAL_COUNT] = material[](
-    // material(vec3(1.0, 0.0, 0.0)), // BorderMaterial
     material(vec3(0.1, 0.2, 0.4)), // BorderMaterial
     material(vec3(0.8, 0.0, 0.1)),
     material(vec3(0.75, 1.0, 0.0)),
@@ -735,8 +734,8 @@ vec3 hslColor(float hue, float sat, float light)
         color.g += C;
         color.b += X;
     } else if (hue < 240.0) {
-        color.g += 0.0;
-        color.r += X;
+        color.r += 0.0;
+        color.g += X;
         color.b += C;
     } else if (hue < 300.0) {
         color.r += X;
@@ -752,7 +751,8 @@ vec3 hslColor(float hue, float sat, float light)
 
 vec3 rainbowColor(float sat, float light)
 {
-    float hue = sin(uTime * 0.25) * 180.0 + 180.0;
+    //float hue = sin(uTime * 0.25) * 180.0 + 180.0;
+    float hue = mod(uTime * 20.0, 360.0);
 
     return hslColor(hue, sat, light);
 }
@@ -851,7 +851,8 @@ float drawField(vec3 samplePoint, vec3 rayMul,
                 {
                     min_d = tmp_d;
                     l_hit.obj_center = stonePos;
-                    l_hit.mat_id = int(color * MATERIAL_COUNT_F) + 1;
+                    // color lies between [0,1), therefore the mat_id lies between [1,7)
+                    l_hit.mat_id = int(color * (MATERIAL_COUNT_F - 1.0)) + 1;
                 }
                 // interestingly enough this does not improve but rather
                 // decrease performance
@@ -1148,7 +1149,8 @@ void drawBackground(vec3 camera, vec3 dir, vec3 light_pos)
 ///////////////////////////////////////////////////////////////////////////////
 void main()
 {
-    materials[0] = material(rainbowColor(0.8, 0.1));
+    // Allows for dynamic change off the bordercolor
+    materials[0] = material(rainbowColor(0.8, 0.25));
 
     l_hit = hit(vec3(0.0), 0, vec3(0.0), vec3(0.0));
     vec3 camera = uCameraPos;

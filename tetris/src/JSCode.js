@@ -52,14 +52,14 @@ for (let i = 0; i < height; i++) {
 }
 
 const directions = Object.freeze({
-    left: 0, 
-    right: 1, 
+    left: 0,
+    right: 1,
     down: 2,
     downMax: 3
 });
 
 const rotations = Object.freeze({
-    left: 0, 
+    left: 0,
     right: 1
 });
 
@@ -87,7 +87,7 @@ shaderboy.addUniform1f("uEffectTime", () => effect.time);
 function shiftStone(direction) {
     if (gameEnd)
         return;
-    
+
 	switch (direction) {
         case directions.left : {
             deleteStoneFromArray();
@@ -135,7 +135,7 @@ function rotateStone(rotate) {
     if (gameEnd)
         return;
     deleteStoneFromArray();
-    
+
     let tmp = stoneArray;
     // TODO: in-place
     if (rotate == rotations.right) {
@@ -153,7 +153,7 @@ function rotateStone(rotate) {
         }
         stoneArray = result;
     }
-    
+
     if (!checkIfAllowed()) {
 		stoneArray = tmp;
     }
@@ -170,8 +170,8 @@ let stoneArray = [[]];
 
 const stoneTypes = Object.freeze({
     size: 11,
-    bar2: 0, 
-    bar3: 1, 
+    bar2: 0,
+    bar3: 1,
     bar4: 2,
     J: 3,
     L: 4,
@@ -185,7 +185,7 @@ const stoneTypes = Object.freeze({
 
 function fillWithRandomStone() {
     let stoneType = Math.floor(Math.random() * Math.floor(stoneTypes.size));
-    const stoneColor = Math.floor(Math.random() * Math.floor(254)) + 1;
+    const stoneColor = Math.floor(Math.random() * Math.floor(254));
 
     switch (stoneType) {
         case stoneTypes.bar2 : {
@@ -238,7 +238,7 @@ function fillWithRandomStone() {
         case stoneTypes.plus : {
             stoneArray = [
                 [0, stoneColor, 0],
-                [stoneColor, stoneColor, stoneColor],                
+                [stoneColor, stoneColor, stoneColor],
                 [0, stoneColor, 0],
             ];
             break;
@@ -284,8 +284,8 @@ function addStoneToArray() {
 // Rule-Check functions
 ///////////////////////////////////////////////////
 function checkIfAllowed() {
-    if (stone_pos_X + stoneArray[0].length > width || 
-        stone_pos_X < 0 ||         
+    if (stone_pos_X + stoneArray[0].length > width ||
+        stone_pos_X < 0 ||
         stone_pos_Y - stoneArray.length < 0
        )
         return false;
@@ -293,7 +293,7 @@ function checkIfAllowed() {
     for (let y = 0; y < stoneArray.length; y++) {
         for (let x = 0; x < (stoneArray[y]).length; x++) {
             if (stoneArray[y][x] > 0) {
-            	if (data[(stone_pos_Y - y) * width + stone_pos_X + x] > 0) 
+            	if (data[(stone_pos_Y - y) * width + stone_pos_X + x] > 0)
                     return false;
             }
         }
@@ -309,8 +309,8 @@ function checkBelowStone() {
     for (let x = 0; x < (stoneArray[0]).length; x++) {
     	let y = stoneArray.length - 1;
         for (; stoneArray[y][x] === 0; y--);
-        
-        // TODO shouldnt the first case be clear with one check, because there only 
+
+        // TODO shouldnt the first case be clear with one check, because there only
         // needs to be one entry in the last line
         if (stone_pos_Y - y - 1 === -1) {
             return false;
@@ -319,7 +319,7 @@ function checkBelowStone() {
         	return false;
         }
     }
-    
+
 	return result;
 }
 
@@ -382,7 +382,7 @@ function ifLineCompleteDelete() {
 ///////////////////////////////////////////////////
 function updateEffect(minus) {
 	effect.time += effect.direction * minus;
-    
+
     if (effect.time <= -1) {
         effect.direction = 1;
         effect.time = -1 + minus;
@@ -398,13 +398,13 @@ function updateEffect(minus) {
 let stone_pos_X = 0;
 let stone_pos_Y = 0;
 let t = 0;
-let speed = 0; 
+let speed = 0;
 
 function init(_speed = 40) {
     gameEnd = false;
     t = 0;
     // TODO Higher = slower
-    speed = _speed; 
+    speed = _speed;
 
     emitStone();
     addStoneToArray();
@@ -419,7 +419,7 @@ init();
 this.addFrameCallback(function(renderer, timestamp, time) {
     const minus = renderer.deltaTime * 0.01;
 	updateEffect(minus);
-    
+
     t += Math.round(renderer.deltaTime/0.016);
     if (t < speed) {
         return;
@@ -435,7 +435,7 @@ this.addFrameCallback(function(renderer, timestamp, time) {
         emitStone();
         addStoneToArray();
     } else {
-        console.log("Game Over. You deleted " + (40 - speed) + " lines.");        	
+        console.log("Game Over. You deleted " + (40 - speed) + " lines.");
         console.log("Press " + KEY_RESTART + " to restart.");
     }
 });
@@ -449,7 +449,7 @@ shaderboy.onKeyDown(function(event) {
             clearLine(y);
         init();
     }
-    
+
     if (gameEnd) {
         return;
     }
@@ -497,10 +497,10 @@ function addTexture(gl) {
     const border = 0;
     const format = gl.LUMINANCE;
     const type = gl.UNSIGNED_BYTE;
-    
+
     const alignment = 4;
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, alignment);
-    
+
     gl.texImage2D(gl.TEXTURE_2D, level, internalFormat, width, height, border,
                   format, type, data);
 
