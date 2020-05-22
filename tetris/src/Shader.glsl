@@ -38,6 +38,7 @@ precision mediump float;
 #define DEBUG 0
 
 #define SHADOW_ITER_COUNT 10
+#define REFLECTION_ITER_COUNT 5
 #define MATERIAL_COUNT 8
 #define MATERIAL_COUNT_F 8.0
 #define BORDER_MAT 0
@@ -90,17 +91,18 @@ vec3 debugVec = vec3(0.0);
 ///////////////////////////////////////////////////////////////////////////////
 struct material {
     vec3 color;
+    float reflection;
 };
 
 material materials[MATERIAL_COUNT] = material[](
-    material(vec3(0.1, 0.2, 0.4)), // BorderMaterial
-    material(vec3(0.8, 0.0, 0.1)),
-    material(vec3(0.75, 1.0, 0.0)),
-    material(vec3(0.1, 0.7, 0.1)),
-    material(vec3(0.3, 0.8, 0.9)),
-    material(vec3(0.0, 0.2, 0.9)),
-    material(vec3(0.4, 0.0, 0.6)),
-    material(vec3(1.0, 1.0, 1.0))
+    material(vec3(0.1, 0.2, 0.4), 0.0), // BorderMaterial
+    material(vec3(0.8, 0.0, 0.1), 0.1),
+    material(vec3(0.75, 1.0, 0.0), 0.4),
+    material(vec3(0.1, 0.7, 0.1), 0.7),
+    material(vec3(0.3, 0.8, 0.9), 0.1),
+    material(vec3(0.0, 0.2, 0.9), 0.2),
+    material(vec3(0.4, 0.0, 0.6), 0.1),
+    material(vec3(1.0, 1.0, 1.0), 0.3)
 );
 
 struct hit {
@@ -245,11 +247,7 @@ float drawField(vec3 samplePoint, vec2 rayMul,
 
     if (material > 0.0)
     {
-        vec3 stonePos = vec3(
-            floor(rayMul.x) + 0.5 + 0.0,
-            floor(rayMul.y) + 0.5 + 0.0,
-            planeDist
-        );
+        vec3 stonePos = vec3(floor(rayMul) + vec2(0.5), planeDist);
 #if OBJ_TYPE == 0
         float tmp_d = sphereSDF(samplePoint, stonePos);
 #else
@@ -272,7 +270,6 @@ float drawField(vec3 samplePoint, vec2 rayMul,
 
 float boundRaymarching(vec3 camera, vec3 ray, float planeDist)
 {
-    float min_d = MAX_DIST;
     float depth = 0.0;
 
     float zback = (planeDist - BOX_DIMS.z * 0.5) / ray.z;
@@ -291,6 +288,9 @@ float boundRaymarching(vec3 camera, vec3 ray, float planeDist)
     {
         ivec2 uvB = ivec2(rayMulB + dimsHalf);
         ivec2 uvF = ivec2(rayMulF + dimsHalf);
+
+            //debugVec = vec3(0.0, 0.0, 1.0);
+
 
         float[2] materials;
         vec2[2] positions;
@@ -544,13 +544,117 @@ void drawBackground(vec3 camera, vec3 dir, vec3 light_pos)
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+// Reflections
+///////////////////////////////////////////////////////////////////////////////
+float reflectionRaymarching(vec3 camera, vec3 ray, float planeDist)
+{
+    vec2 dir = ray.xy;
+	vec2 start = camera.xy;
+    vec2 end = camera.xy + dir * 3.0;
+
+    // Run a bresenham algorithm to iterate all stones on the path of the ray
+    vec2 step = sign(dir);
+    dir = abs(dir);
+
+    // If distance to small adjust it to avoid division by 0
+    // This is done componentwise to allow for axis aligned vectors (e.g. 1,0)
+    if (dir.x <= EPSILON)
+        dir.x = EPSILON;
+    if (dir.y <= EPSILON)
+        dir.y = EPSILON;
+
+    if (round(start.x - end.x) == 0.0 && round(start.y - end.y) == 0.0)
+        return MAX_DIST;
+
+    // Calculate the distance from the start point
+    // to the edges of a stonefield which could intersect the ray
+    // This is dependend on the ray direction.
+    vec2 tMax = fract(start);
+    if (step.x > 0.0)
+        tMax.x = BOX_DIMS.x - tMax.x;
+    if (step.y > 0.0)
+        tMax.y = BOX_DIMS.y - tMax.y;
+    tMax /= dir;
+
+        //debugVec.xy = tMax;
+
+
+    // Calculate the offset by which the point is moved to reach the next stonepos
+    vec2 tDelta = BOX_DIMS.xy / dir;
+
+    // As long as the stepcount is not exceeded and the lightpos is not reached continue
+    for (int steps = 0; (start.x * step.x < end.x * step.x || start.y * step.y < end.y * step.y) &&
+         steps < REFLECTION_ITER_COUNT; steps++)
+    {
+        // Advance the start position, this depends on the slope of the dirVec (lower first)
+        // Increase the tDelta to switch direction as soon as necessary
+        if (tMax.x < tMax.y)
+        {
+            tMax.x += tDelta.x;
+            start.x += step.x;
+        }
+        else
+        {
+            tMax.y += tDelta.y;
+            start.y += step.y;
+        }
+
+        // Use the position to calculate the texture coords
+        // these need to be adjusted to be only positive
+        ivec2 uv = ivec2(floor(start) + dimsHalf);
+
+        float material = texelFetch(uBoardTex, uv, 0).x;
+        // If the position is occupied check whether the ray actually hits this stone
+        if (material > 0.0)
+    	{
+        	//vec3 newPos = vec3(floor(start) + vec2(0.5), planeDist);
+
+            float depth = 0.0;
+            float dist = MAX_DIST;
+
+            // TODO max(boxdims) instead of lightdist?
+            for (int i = 0; i < MAX_SHADOW_MARCHING_STEPS && depth < MAX_DIST; i++)
+            {
+             	dist = min(dist, drawField(
+                    camera + depth * ray, start, material, planeDist, dist
+                ));
+                // If the distance is small then the stone was hit
+                // otherwise continue following the ray
+                if (dist < EPSILON)
+                    return 0.0;
+                depth += dist;
+            }
+        }
+    }
+
+    // Nothing is in the path of the lightray and therefore no shadow is needed
+    // TODO Adjust such that the smallest distance is returned (soft shadow)
+    return MAX_DIST;
+}
+
+vec3 getReflection(vec3 camera, vec3 dir, vec3 normal, float planeDist)
+{
+    vec3 reflDir = reflect(dir, normal);
+
+    float dist = reflectionRaymarching(camera + EPSILON * reflDir, reflDir, planeDist);
+    if (dist >= MAX_DIST)
+    {
+    	return vec3(0.0);
+    }
+                //debugVec.z = 1.0;
+
+    return materials[l_hit.mat_id].color;
+    //return reflDir;
+}
+
+///////////////////////////////////////////////////////////////////////////////
 // Main
 ///////////////////////////////////////////////////////////////////////////////
 void main()
 {
     dimsHalf = vec2(uWidth / 2.0, uHeight / 2.0);
 
-    materials[0] = material(rainbowColor(0.8, 0.1));
+    materials[0] = material(rainbowColor(0.8, 0.1), 0.0);
 
     l_hit = hit(vec3(0.0), 0, vec3(0.0), vec3(0.0));
     vec3 camera = uCameraPos;
@@ -584,6 +688,10 @@ void main()
     );
 
     oColor = vec4(materials[l_hit.mat_id].color, 1.0);
+
+    oColor.rgb = oColor.rgb * (1.0 - materials[l_hit.mat_id].reflection) +
+        materials[l_hit.mat_id].reflection * getReflection(l_hit.hit_p, dir, normal, planeDist);
+
     oColor.rgb *= light;
 
 #if DEBUG == 1
