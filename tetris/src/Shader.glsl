@@ -34,6 +34,7 @@ precision mediump float;
 // 2 - normal
 // 3 - obj color
 // 4 - shadow value
+// 5 - use debugVec
 #define DEBUG 0
 
 #define SHADOW_ITER_COUNT 10
@@ -56,6 +57,8 @@ const int MAX_SHADOW_MARCHING_STEPS = 55;
 const float MIN_DIST = 0.0;
 const float MAX_DIST = 100.0;
 const float EPSILON = 0.001;
+const vec3 BOX_DIMS = vec3(1.0); // TODO capital letters
+const float EFFECT_RADIUS = 1.0;
 
 ///////////////////////////////////////////////////////////////////////////////
 // uniforms
@@ -74,8 +77,10 @@ uniform sampler2D uBoardTex;
 
 out vec4 oColor;
 
-float EFFECT_RADIUS = 1.0;
-
+///////////////////////////////////////////////////////////////////////////////
+// globals
+///////////////////////////////////////////////////////////////////////////////
+vec2 dimsHalf = vec2(0.0);
 #if DEBUG == 5
 vec3 debugVec = vec3(0.0);
 #endif
@@ -193,13 +198,13 @@ float borderSDF(vec3 samplePoint, float planeDist)
     float r1 = boxSDF(
         samplePoint,
         vec3(0.0, 0.0, planeDist),
-        vec3(uWidth/2.0+1.0, uHeight/2.0+1.0, 0.5)
+        vec3(dimsHalf + 1.0, 0.5)
     );
 
 	float r2 = boxSDF(
         samplePoint,
         vec3(0.0, 0.0, planeDist),
-        vec3(uWidth/2.0, uHeight/2.0, 1.0)
+        vec3(dimsHalf.xy, 1.0)
     );
 
     return differenceSDF(r1, r2);
@@ -227,49 +232,39 @@ float drawBorder(vec3 samplePoint, float planeDist)
         l_hit.obj_center = vec3(0.0, 0.0, planeDist);
         l_hit.hit_p = samplePoint;
         l_hit.mat_id = BORDER_MAT;
-        l_hit.dim = vec3(uWidth/2.0+1.0, uHeight/2.0+1.0, 0.5);
+        l_hit.dim = vec3(dimsHalf + 1.0, 0.5);
     }
 
     return min_d;
 }
 
-float drawField(vec3 samplePoint, vec3 rayMul,
-                mat3 materials, float planeDist, float dist)
+float drawField(vec3 samplePoint, vec2 rayMul,
+                float material, float planeDist, float dist)
 {
 	float min_d = dist;
 
-    // TODO dont do a sample range but rather estimate where the ray would hit
-    float sample_range = 1.0;
-    for (float x = -sample_range; x <= sample_range; x++) {
-        for (float y = -sample_range; y <= sample_range; y++) {
-
-            float color = materials[int(x+1.0)][int(y+1.0)];
-            if (color > 0.0)
-            {
-                vec3 stonePos = vec3(
-                    floor(rayMul.x) + 0.5 + x,
-                    floor(rayMul.y) + 0.5 + y,
-                    planeDist
-                );
+    if (material > 0.0)
+    {
+        vec3 stonePos = vec3(
+            floor(rayMul.x) + 0.5 + 0.0,
+            floor(rayMul.y) + 0.5 + 0.0,
+            planeDist
+        );
 #if OBJ_TYPE == 0
-                float tmp_d = sphereSDF(samplePoint, stonePos);
+        float tmp_d = sphereSDF(samplePoint, stonePos);
 #else
-                float tmp_d = boxSDF(samplePoint, stonePos, vec3(0.5));
+        float tmp_d = boxSDF(samplePoint, stonePos, vec3(0.5));
 #endif
-                if (tmp_d < min_d)
-                {
-                    min_d = tmp_d;
-                    l_hit.obj_center = stonePos;
-                    // color lies between [0,1), therefore the mat_id lies between [1,7)
-                    l_hit.mat_id = int(color * (MATERIAL_COUNT_F - 1.0)) + 1;
-                }
-                // interestingly enough this does not improve but rather
-                // decrease performance
-                //if (min_d < EPSILON)
-                //    return min_d;
-
-            }
+        if (tmp_d < min_d)
+        {
+            min_d = tmp_d;
+            l_hit.obj_center = stonePos;
+            l_hit.mat_id = int(material * (MATERIAL_COUNT_F - 1.0)) + 1;
         }
+        // interestingly enough this does not improve but rather
+        // decrease performance
+        //if (min_d < EPSILON)
+        //    return min_d;
     }
     l_hit.hit_p = samplePoint;
     return min_d;
@@ -280,53 +275,50 @@ float boundRaymarching(vec3 camera, vec3 ray, float planeDist)
     float min_d = MAX_DIST;
     float depth = 0.0;
 
-    float z = planeDist / ray.z;
-    vec3 rayMul = ray * z;
+    float zback = (planeDist - BOX_DIMS.z * 0.5) / ray.z;
+    vec2 rayMulB = ray.xy * zback;
 
-    if (round(rayMul.x - 0.5) <= round(uWidth / 2.0) &&
-        round(rayMul.x + 0.5) >= -round(uWidth / 2.0) &&
-        round(abs(rayMul.y) - 0.5) <= round(uHeight / 2.0) &&
-        round(rayMul.y + 0.5) >= -round(uHeight / 2.0)
+    float zfront = (planeDist + BOX_DIMS.z * 0.5) / ray.z;
+    vec2 rayMulF = ray.xy * zfront;
+
+    // If the ray does not hit within the border area
+    // there cant be any hits of the field
+    if (round(rayMulF.x - 0.5) <= dimsHalf.x &&
+        round(rayMulF.x + 0.5) >= -dimsHalf.x &&
+        round(abs(rayMulF.y) - 0.5) <= dimsHalf.y &&
+        round(rayMulF.y + 0.5) >= -dimsHalf.y
        )
     {
-        ivec2 uv = ivec2(
-    		int(rayMul.x + uWidth / 2.0),
-    		int(rayMul.y + uHeight / 2.0)
-    	);
+        ivec2 uvB = ivec2(rayMulB + dimsHalf);
+        ivec2 uvF = ivec2(rayMulF + dimsHalf);
 
-        mat3 materials;
+        float[2] materials;
+        vec2[2] positions;
 		// Since the area in which the stones need to be sampled is
-        // smaller then the field we need an additional check
-        if (rayMul.x < -uWidth / 2.0 || rayMul.y < -uHeight / 2.0)
+        // smaller then the field we can make an additional check
+        // by only checking the front intersection, since the bottom
+        // one can not be hit, if the front intersection is not inside the area
+        if (rayMulF.x > -dimsHalf.x && rayMulF.y > -dimsHalf.y &&
+           	 rayMulF.x < dimsHalf.x && rayMulF.y < dimsHalf.y)
         {
-            materials = mat3(
-                0, 0, 0,
-                0, 0, 0,
-                0, 0, 0
-        	);
-        } else {
-            // TODO obacht - change this such that out of bounds get reduced
-            ivec3 tmp = ivec3(-1, 0, 1);
-            materials = mat3(
-                texelFetch(uBoardTex, uv + tmp.xx, 0).x,
-                texelFetch(uBoardTex, uv + tmp.xy, 0).x,
-                texelFetch(uBoardTex, uv + tmp.xz, 0).x,
-                texelFetch(uBoardTex, uv + tmp.yx, 0).x,
-                texelFetch(uBoardTex, uv + tmp.yy, 0).x,
-                texelFetch(uBoardTex, uv + tmp.yz, 0).x,
-                texelFetch(uBoardTex, uv + tmp.zx, 0).x,
-                texelFetch(uBoardTex, uv + tmp.zy, 0).x,
-                texelFetch(uBoardTex, uv + tmp.zz, 0).x
-            );
+            materials[0] = texelFetch(uBoardTex, uvB, 0).x;
+            materials[1] = texelFetch(uBoardTex, uvF, 0).x;
+
+            positions[0] = rayMulB;
+            positions[1] = rayMulF;
         }
 
         float dist = MAX_DIST;
         for (int i = 0; i < MAX_MARCHING_STEPS && depth < MAX_DIST; i++)
         {
             dist = drawBorder(camera + depth * ray, planeDist);
-            dist = min(dist, drawField(
-                camera + depth * ray, rayMul, materials, planeDist, dist
-            ));
+
+            for (int j = 0; j < 2; j++)
+            {
+                dist = min(dist, drawField(
+                    camera + depth * ray, positions[j], materials[j], planeDist, dist
+                ));
+            }
             if (dist < EPSILON)
                 return 0.0;
             depth += dist;
@@ -405,8 +397,6 @@ vec3 phongOfPoint(vec3 light_pos, vec3 cam_pos, vec3 hit_point, vec3 normal)
 float shadowRaymarching(vec3 camera, vec3 ray, float planeDist, vec3 light_pos)
 {
     float light_dist = length(light_pos - camera);
-    vec2 dims = vec2(uWidth / 2.0, uHeight / 2.0);
-	vec2 boxDims = vec2(1.0);
 
     vec2 start = camera.xy;
     vec2 end = light_pos.xy;
@@ -434,13 +424,13 @@ float shadowRaymarching(vec3 camera, vec3 ray, float planeDist, vec3 light_pos)
     // This is dependend on the ray direction.
     vec2 tMax = fract(start);
     if (step.x > 0.0)
-        tMax.x = boxDims.x - tMax.x;
+        tMax.x = BOX_DIMS.x - tMax.x;
     if (step.y > 0.0)
-        tMax.y = boxDims.y - tMax.y;
+        tMax.y = BOX_DIMS.y - tMax.y;
     tMax /= dirVec;
 
     // Calculate the offset by which the point is moved to reach the next stonepos
-    vec2 tDelta = boxDims / dirVec;
+    vec2 tDelta = BOX_DIMS.xy / dirVec;
 
     // As long as the stepcount is not exceeded and the lightpos is not reached continue
     for (int steps = 0; (start.x * step.x < end.x * step.x || start.y * step.y < end.y * step.y) &&
@@ -461,7 +451,7 @@ float shadowRaymarching(vec3 camera, vec3 ray, float planeDist, vec3 light_pos)
 
         // Use the position to calculate the texture coords
         // these need to be adjusted to be only positive
-        ivec2 uv = ivec2(floor(start) + dims);
+        ivec2 uv = ivec2(floor(start) + dimsHalf);
 
         float material = texelFetch(uBoardTex, uv, 0).x;
         // If the position is occupied check whether the ray actually hits this stone
@@ -558,22 +548,22 @@ void drawBackground(vec3 camera, vec3 dir, vec3 light_pos)
 ///////////////////////////////////////////////////////////////////////////////
 void main()
 {
-    // Allows for dynamic change off the bordercolor
-    materials[0] = material(rainbowColor(0.8, 0.25));
+    dimsHalf = vec2(uWidth / 2.0, uHeight / 2.0);
+
+    materials[0] = material(rainbowColor(0.8, 0.1));
 
     l_hit = hit(vec3(0.0), 0, vec3(0.0), vec3(0.0));
     vec3 camera = uCameraPos;
     float fieldOfView = 45.0;
     vec3 dir = rayDirection(fieldOfView, gl_FragCoord.xy);
-    // TODO add similar effect for x
 	float planeDist = -max(
-        0.0,
+        (uWidth + 3.0) / tan(radians(fieldOfView) * 0.5),
         (uHeight + 3.0) / tan(radians(fieldOfView) * 0.5)
     );
 
     vec3 light_pos = vec3(
-        sin(uTime) * uWidth / 2.0,
-        cos(uTime) * uHeight / 2.0,
+        sin(uTime) * dimsHalf.x,
+        cos(uTime) * dimsHalf.y,
         planeDist + abs(sin(uTime * 0.75)) * 1.25 + 0.75
     );
 
