@@ -34,13 +34,13 @@ const KEY_TRIGHT = 'KeyE';
 ///////////////////////////////////////////////////
 // Setup
 ///////////////////////////////////////////////////
-const width = 8;
+const width = 12;
 if (width % 4 != 0)
-    console.alert("Width should be 4 aligned");
-const height = 12;
+    alert("Width should be 4 aligned");
+const height = 20;
 // TODO ?!
 if (height % 2 != 0)
-    console.alert("Height should be even");
+    alert("Height should be even");
 let data = new Uint8Array(width * height);
 
 // fill with random data (max 255)
@@ -185,7 +185,7 @@ const stoneTypes = Object.freeze({
 
 function fillWithRandomStone() {
     let stoneType = Math.floor(Math.random() * Math.floor(stoneTypes.size));
-    const stoneColor = Math.floor(Math.random() * Math.floor(254));
+    stoneColor = Math.floor(Math.random() * Math.floor(254)) + 1;
 
     switch (stoneType) {
         case stoneTypes.bar2 : {
