@@ -123,8 +123,11 @@ struct hit {
  */
 vec3 rayDirection(float fieldOfView, vec2 fragCoord)
 {
-    vec2 xy = fragCoord - uResolution / 2.0;
-    float z = uResolution.y / tan(radians(fieldOfView) / 2.0);
+    vec2 xy = fragCoord - uResolution * 0.5;
+    float which = uResolution.x / uWidth < uResolution.y / uHeight ?
+        uResolution.x :
+    	uResolution.y;
+    float z = which / tan(radians(fieldOfView) * 0.5);
     return normalize(vec3(xy, -z));
 }
 
@@ -212,12 +215,12 @@ float borderSDF(vec3 samplePoint, float planeDist)
     return differenceSDF(r1, r2);
 }
 
-float effectSDF(vec3 p)
+float effectSDF(vec3 p, vec3 pos)
 {
     float t = 2.5 * uEffectTime;
     // vec3 m = vec3(mod(abs(p.xyz), 5.0));
     float q = sin(t * p.x) * sin(t * p.y) * sin(t * p.z);
-    return length(p - vec3(0.0, 0.0, -50.0)) - 7.5 + q;
+    return length(p - pos) - 7.5 + q;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -512,23 +515,24 @@ float inShadow(vec3 collision, vec3 light_pos, vec3 normal, float planeDist) {
 ///////////////////////////////////////////////////////////////////////////////
 // Background
 ///////////////////////////////////////////////////////////////////////////////
-void drawBackground(vec3 camera, vec3 dir, vec3 light_pos)
+void drawBackground(vec3 camera, vec3 dir, vec3 light_pos, float planeDist)
 {
     const vec2 h = vec2(EPSILON, 0.0);
 
     float dist = MAX_DIST;
     float depth = EPSILON;
+    vec3 pos = vec3(0.0, 0.0, planeDist - 10.0);
 
     for (int i = 0; i < 400 && depth < MAX_DIST; i++)
     {
-        dist = effectSDF(camera + dir * depth);
+        dist = effectSDF(camera + dir * depth, pos);
         if (dist < EPSILON)
         {
             vec3 point = camera + dir * depth;
             vec3 snorm = normalize(
-                vec3(effectSDF(point+h.xyy) - effectSDF(point-h.xyy),
-                     effectSDF(point+h.yxy) - effectSDF(point-h.yxy),
-                     effectSDF(point+h.yyx) - effectSDF(point-h.yyx))
+                vec3(effectSDF(point+h.xyy, pos) - effectSDF(point-h.xyy, pos),
+                     effectSDF(point+h.yxy, pos) - effectSDF(point-h.yxy, pos),
+                     effectSDF(point+h.yyx, pos) - effectSDF(point-h.yyx, pos))
             );
 
             oColor.rgb = vec3(0.1) * (phong_ambient + phongOfPoint(
@@ -660,10 +664,10 @@ void main()
     vec3 camera = uCameraPos;
     float fieldOfView = 45.0;
     vec3 dir = rayDirection(fieldOfView, gl_FragCoord.xy);
-	float planeDist = -max(
-        (uWidth + 3.0) / tan(radians(fieldOfView) * 0.5),
-        (uHeight + 3.0) / tan(radians(fieldOfView) * 0.5)
-    );
+
+    float which = uResolution.x / uWidth < uResolution.y / uHeight ?
+        uWidth : uHeight;
+    float planeDist = -(which + 3.0) / tan(radians(fieldOfView) * 0.5);
 
     vec3 light_pos = vec3(
         sin(uTime) * dimsHalf.x,
@@ -674,25 +678,40 @@ void main()
     float dist = boundRaymarching(camera, dir, planeDist);
     if (dist >= MAX_DIST)
     {
-		drawBackground(camera, dir, light_pos);
+		drawBackground(camera, dir, light_pos, planeDist);
         return;
     }
 
-    vec3 normal = estimateNormal(l_hit.hit_p, l_hit.obj_center, l_hit.mat_id);
-    float sVal = inShadow(l_hit.hit_p, light_pos, normal, planeDist);
+    vec3 colors[2];
+    vec3 normals[2];
+    float shadowVals[2];
+    vec3 lightVals[2];
+    normals[0] = estimateNormal(l_hit.hit_p, l_hit.obj_center, l_hit.mat_id);
+    shadowVals[0] = inShadow(l_hit.hit_p, light_pos, normals[0], planeDist);
 
-    vec3 light = phong_ambient;
-    light += (1.0 - sVal) * phongOfPoint(
+    lightVals[0] += phong_ambient + (1.0 - shadowVals[0]) * phongOfPoint(
         light_pos,
-        camera, l_hit.hit_p, normal
+        camera, l_hit.hit_p, normals[0]
     );
 
-    oColor = vec4(materials[l_hit.mat_id].color, 1.0);
+    colors[0] = materials[l_hit.mat_id].color;
 
-    oColor.rgb = oColor.rgb * (1.0 - materials[l_hit.mat_id].reflection) +
-        materials[l_hit.mat_id].reflection * getReflection(l_hit.hit_p, dir, normal, planeDist);
+    float refl = materials[l_hit.mat_id].reflection;
+    colors[1] = getReflection(l_hit.hit_p, dir, normals[0], planeDist);
 
-    oColor.rgb *= light;
+    normals[1] = estimateNormal(l_hit.hit_p, l_hit.obj_center, l_hit.mat_id);
+    shadowVals[1] = inShadow(l_hit.hit_p, light_pos, normals[1], planeDist);
+
+    lightVals[1] = phong_ambient + (1.0 - shadowVals[1]) * phongOfPoint(
+        light_pos,
+        camera, l_hit.hit_p, normals[1]
+    );
+
+    oColor = vec4(1.0);
+    oColor.rgb = (1.0 - refl) * colors[0];
+    oColor.rgb += refl * colors[1] * lightVals[1];
+
+    oColor.rgb *= lightVals[0];
 
 #if DEBUG == 1
     oColor.rgb = l_hit.hit_p;
