@@ -12,10 +12,9 @@ No geometry is passed to the shader, only a texture representing where on the pl
 |    S    | move down  |
 |    Q    | turn left  |
 |    E    | turn right |
-|    S    | move down  |
 |    R    | reset the game |
 |  Space  | drop to bottom |
 
 <div style="text-align: center">
-    <img src="tetris.png" height=450>
+    <img src="Tetris.png" height=450>
 </div>
